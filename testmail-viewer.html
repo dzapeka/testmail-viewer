@@ -295,6 +295,62 @@
       .inline-link:hover {
         text-decoration: underline;
       }
+      #attachmentsPanel {
+        padding: 10px 14px;
+        background: var(--panel);
+        border-bottom: 1px solid #242e38;
+        display: none;
+      }
+      #attachmentsPanel.visible {
+        display: block;
+      }
+      .attachments-header {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--muted);
+        margin-bottom: 8px;
+        font-weight: 600;
+      }
+      .attachments-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .attachment-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        background: var(--panel-alt);
+        border: 1px solid #2d3640;
+        border-radius: 5px;
+        font-size: 12px;
+        color: var(--text);
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .attachment-item:hover {
+        background: #2d3640;
+        border-color: var(--accent);
+      }
+      .attachment-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+      .attachment-name {
+        font-weight: 500;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 200px;
+      }
+      .attachment-size {
+        font-size: 10px;
+        color: var(--muted);
+      }
       @media (max-width: 900px) {
         #sidebar {
           width: 300px;
@@ -389,6 +445,10 @@
             <button id="btnText">Text</button>
           </div>
         </div>
+        <div id="attachmentsPanel">
+          <div class="attachments-header">📎 Attachments</div>
+          <div id="attachmentsList" class="attachments-list"></div>
+        </div>
         <div id="frameContainer">
           <div id="empty">
             No email selected.<br /><br />Select a message on the left to view
@@ -431,6 +491,8 @@
         const viewToggle = $('#viewToggle');
         const btnHtml = $('#btnHtml');
         const btnText = $('#btnText');
+        const attachmentsPanel = $('#attachmentsPanel');
+        const attachmentsList = $('#attachmentsList');
 
         let lastResult = null;
         let activeId = null;
@@ -487,16 +549,109 @@
           }, 8000);
         }
 
-        function sanitizeHtml(html) {
+        function sanitizeHtml(html, email) {
           // minimal neutralization for embedding from trusted source (Testmail). Optionally integrate DOMPurify if needed.
           // We trust the email content for test viewing; for stricter security sanitize thoroughly.
-          return html || '';
+          if (!html) return '';
+
+          // Replace cid: references with actual downloadUrls from attachments
+          const attachments = email.attachments || [];
+          let processedHtml = html;
+
+          attachments.forEach((att) => {
+            if (att.cid && att.downloadUrl) {
+              // Match both cid:xxx and cid:<xxx> formats
+              const cidPattern1 = new RegExp(`cid:${att.cid}`, 'gi');
+              const cidPattern2 = new RegExp(`cid:&lt;${att.cid}&gt;`, 'gi');
+              const cidPattern3 = new RegExp(`cid:<${att.cid}>`, 'gi');
+
+              processedHtml = processedHtml.replace(
+                cidPattern1,
+                att.downloadUrl
+              );
+              processedHtml = processedHtml.replace(
+                cidPattern2,
+                att.downloadUrl
+              );
+              processedHtml = processedHtml.replace(
+                cidPattern3,
+                att.downloadUrl
+              );
+            }
+          });
+
+          return processedHtml;
+        }
+
+        function formatFileSize(bytes) {
+          if (bytes === 0) return '0 B';
+          const k = 1024;
+          const sizes = ['B', 'KB', 'MB', 'GB'];
+          const i = Math.floor(Math.log(bytes) / Math.log(k));
+          return (
+            Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i]
+          );
+        }
+
+        function renderAttachments(email) {
+          const attachments = email.attachments || [];
+          if (attachments.length === 0) {
+            attachmentsPanel.classList.remove('visible');
+            return;
+          }
+
+          attachmentsPanel.classList.add('visible');
+          attachmentsList.innerHTML = '';
+
+          attachments.forEach((att, idx) => {
+            const item = document.createElement('div');
+            item.className = 'attachment-item';
+            item.title = 'Click to download: ' + att.filename;
+
+            const info = document.createElement('div');
+            info.className = 'attachment-info';
+
+            const name = document.createElement('div');
+            name.className = 'attachment-name';
+            name.textContent = att.filename || 'attachment_' + idx;
+
+            const size = document.createElement('div');
+            size.className = 'attachment-size';
+            size.textContent = formatFileSize(att.size || 0);
+
+            info.appendChild(name);
+            info.appendChild(size);
+            item.appendChild(info);
+
+            item.addEventListener('click', () =>
+              downloadAttachment(email, att)
+            );
+            attachmentsList.appendChild(item);
+          });
+        }
+
+        function downloadAttachment(email, attachment) {
+          // Use the downloadUrl provided by Testmail API
+          if (!attachment.downloadUrl) {
+            showError('Attachment download URL not available');
+            return;
+          }
+
+          // Open in new tab or trigger download
+          const link = document.createElement('a');
+          link.href = attachment.downloadUrl;
+          link.download = attachment.filename;
+          link.target = '_blank';
+          link.click();
         }
 
         function showEmailContent(email, viewType) {
           currentEmail = email;
           const hasHtml = !!(email.html && email.html.trim());
           const hasText = !!(email.text && email.text.trim());
+
+          // Show attachments if any
+          renderAttachments(email);
 
           // Determine which view to use
           let finalView = viewType || currentView;
@@ -522,7 +677,7 @@
           if (currentView === 'html' && hasHtml) {
             frame.style.display = 'block';
             textViewer.style.display = 'none';
-            frame.srcdoc = sanitizeHtml(email.html);
+            frame.srcdoc = sanitizeHtml(email.html, email);
           } else if (currentView === 'text' && hasText) {
             frame.style.display = 'none';
             textViewer.style.display = 'block';
@@ -631,6 +786,7 @@
           frame.style.display = 'none';
           textViewer.style.display = 'none';
           viewToggle.style.display = 'none';
+          attachmentsPanel.classList.remove('visible');
           emptyState.style.display = 'flex';
           emptyState.innerHTML = 'Cleared configuration.';
           countBadge.textContent = '0';
