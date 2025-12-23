@@ -41,8 +41,6 @@ The response (simplified) includes an `emails` array; each entry may contain `id
 5. Click an email on the left to view its HTML on the right.
 6. Use `Clear` to remove persisted values.
 
-If an email has no HTML body, a placeholder message is shown instead.
-
 ## Security Notes
 - API key lives only in your browser's `localStorage`.
 
