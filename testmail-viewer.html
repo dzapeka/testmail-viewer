@@ -15,14 +15,16 @@
         --muted: #9aa4b1;
         --danger: #ff4e5e;
         --radius: 8px;
-        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono',
+          monospace;
       }
       * {
         box-sizing: border-box;
       }
       body {
         margin: 0;
-        font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, sans-serif;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu,
+          sans-serif;
         background: linear-gradient(135deg, #12161d, #0c1014);
         color: var(--text);
         min-height: 100vh;
@@ -177,6 +179,22 @@
         color: var(--muted);
         flex: 1;
       }
+      #viewToggle {
+        display: none;
+        gap: 4px;
+      }
+      #viewToggle button {
+        padding: 4px 10px;
+        font-size: 11px;
+        background: var(--panel-alt);
+        border-color: #394655;
+        color: var(--muted);
+      }
+      #viewToggle button.active {
+        background: linear-gradient(120deg, var(--accent), #1e74d8);
+        border-color: #2d6fbf;
+        color: #fff;
+      }
       #frameContainer {
         flex: 1;
         position: relative;
@@ -188,6 +206,21 @@
         height: 100%;
         border: 0;
         background: #fff;
+      }
+      #textViewer {
+        flex: 1;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background: #fff;
+        color: #222;
+        padding: 20px;
+        font-family: var(--mono);
+        font-size: 13px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        display: none;
       }
       #empty {
         margin: auto;
@@ -282,32 +315,66 @@
       <div id="configPanel">
         <div>
           <label for="apikey">API Key</label>
-          <input id="apikey" type="password" placeholder="apikey" autocomplete="off" />
+          <input
+            id="apikey"
+            type="password"
+            placeholder="apikey"
+            autocomplete="off"
+          />
         </div>
         <div>
           <label for="namespace">Namespace</label>
-          <input id="namespace" type="text" placeholder="namespace" autocomplete="off" />
+          <input
+            id="namespace"
+            type="text"
+            placeholder="namespace"
+            autocomplete="off"
+          />
         </div>
         <div>
           <label for="tag">Tag (optional)</label>
-          <input id="tag" type="text" placeholder="Exact tag filter" autocomplete="off" />
+          <input
+            id="tag"
+            type="text"
+            placeholder="Exact tag filter"
+            autocomplete="off"
+          />
         </div>
         <div>
           <label for="limit">Limit</label>
           <input id="limit" type="number" min="1" max="100" value="25" />
         </div>
-        <div style="display: flex; gap: 8px; align-items: flex-end; padding-bottom: 4px">
-          <button id="refreshBtn" title="Fetch emails (does not auto-refresh)">Refresh</button>
-          <button id="clearBtn" class="secondary" title="Clear saved credentials">Clear</button>
+        <div
+          style="
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+            padding-bottom: 4px;
+          "
+        >
+          <button id="refreshBtn" title="Fetch emails (does not auto-refresh)">
+            Refresh
+          </button>
+          <button
+            id="clearBtn"
+            class="secondary"
+            title="Clear saved credentials"
+          >
+            Clear
+          </button>
         </div>
       </div>
-      <div class="notice">Credentials are stored locally in <code>localStorage</code> only.</div>
+      <div class="notice">
+        Credentials are stored locally in <code>localStorage</code> only.
+      </div>
     </header>
     <main>
       <section id="sidebar">
         <div id="emailsHeader">
           <span class="badge" id="countBadge">0</span>
-          <div id="loadingIndicator" style="display: none" aria-label="Loading"><div class="spinner"></div></div>
+          <div id="loadingIndicator" style="display: none" aria-label="Loading">
+            <div class="spinner"></div>
+          </div>
         </div>
         <div id="listContainer">
           <ul id="emailsList"></ul>
@@ -317,20 +384,29 @@
       <section id="viewer">
         <div id="viewerTop">
           <div id="status">Enter credentials then click Refresh.</div>
+          <div id="viewToggle">
+            <button id="btnHtml" class="active">HTML</button>
+            <button id="btnText">Text</button>
+          </div>
         </div>
         <div id="frameContainer">
           <div id="empty">
-            No email selected.<br /><br />Select a message on the left to view its HTML body. If the email lacks HTML
-            content, a fallback notice will be shown.
+            No email selected.<br /><br />Select a message on the left to view
+            its content.
           </div>
           <iframe id="htmlFrame" style="display: none"></iframe>
+          <div id="textViewer"></div>
         </div>
       </section>
     </main>
     <footer>
       <span
         >Built for quick local testing • Uses Testmail JSON API •
-        <a class="inline-link" href="https://testmail.app/docs/" target="_blank" rel="noopener noreferrer"
+        <a
+          class="inline-link"
+          href="https://testmail.app/docs/"
+          target="_blank"
+          rel="noopener noreferrer"
           >Docs</a
         ></span
       >
@@ -350,10 +426,16 @@
         const loadingIndicator = $('#loadingIndicator');
         const errorsEl = $('#errors');
         const frame = $('#htmlFrame');
+        const textViewer = $('#textViewer');
         const emptyState = $('#empty');
+        const viewToggle = $('#viewToggle');
+        const btnHtml = $('#btnHtml');
+        const btnText = $('#btnText');
 
         let lastResult = null;
         let activeId = null;
+        let currentEmail = null;
+        let currentView = 'html';
 
         const LS_KEY = 'testmailViewerConfigV1';
 
@@ -408,9 +490,50 @@
         function sanitizeHtml(html) {
           // minimal neutralization for embedding from trusted source (Testmail). Optionally integrate DOMPurify if needed.
           // We trust the email content for test viewing; for stricter security sanitize thoroughly.
-          return (
-            html || '<div style="font:14px system-ui; padding:1rem; color:#333;">(No HTML content in this email)</div>'
-          );
+          return html || '';
+        }
+
+        function showEmailContent(email, viewType) {
+          currentEmail = email;
+          const hasHtml = !!(email.html && email.html.trim());
+          const hasText = !!(email.text && email.text.trim());
+
+          // Determine which view to use
+          let finalView = viewType || currentView;
+          if (finalView === 'html' && !hasHtml) {
+            finalView = 'text';
+          }
+          if (finalView === 'text' && !hasText) {
+            finalView = 'html';
+          }
+          currentView = finalView;
+
+          // Show toggle buttons if both formats available
+          if (hasHtml && hasText) {
+            viewToggle.style.display = 'flex';
+            btnHtml.classList.toggle('active', currentView === 'html');
+            btnText.classList.toggle('active', currentView === 'text');
+          } else {
+            viewToggle.style.display = 'none';
+          }
+
+          // Display content
+          emptyState.style.display = 'none';
+          if (currentView === 'html' && hasHtml) {
+            frame.style.display = 'block';
+            textViewer.style.display = 'none';
+            frame.srcdoc = sanitizeHtml(email.html);
+          } else if (currentView === 'text' && hasText) {
+            frame.style.display = 'none';
+            textViewer.style.display = 'block';
+            textViewer.textContent = email.text;
+          } else {
+            // No content available
+            frame.style.display = 'none';
+            textViewer.style.display = 'none';
+            emptyState.style.display = 'flex';
+            emptyState.innerHTML = 'This email has no viewable content.';
+          }
         }
 
         function buildQuery() {
@@ -440,7 +563,9 @@
             from.textContent = e.from || '(unknown sender)';
             const meta = document.createElement('div');
             meta.className = 'email-meta';
-            meta.innerHTML = `<span>${e.tag || '-'}</span><span>${fmtDate(e.timestamp)}</span>`;
+            meta.innerHTML = `<span>${e.tag || '-'}</span><span>${fmtDate(
+              e.timestamp
+            )}</span>`;
             li.appendChild(subj);
             li.appendChild(from);
             li.appendChild(meta);
@@ -453,12 +578,10 @@
           if (!lastResult || !lastResult.emails) return;
           const email = lastResult.emails[idx];
           activeId = email.id || idx;
-          [...listEl.children].forEach((li) => li.classList.toggle('active', li.dataset.idx == idx));
-          const doc = sanitizeHtml(email.html);
-          // Render inside iframe
-          frame.style.display = 'block';
-          emptyState.style.display = 'none';
-          frame.srcdoc = doc;
+          [...listEl.children].forEach((li) =>
+            li.classList.toggle('active', li.dataset.idx == idx)
+          );
+          showEmailContent(email, 'html'); // Default to HTML
           statusEl.textContent = email.subject || '(no subject)';
         }
 
@@ -483,8 +606,10 @@
             })
             .then((json) => {
               lastResult = json;
-              countBadge.textContent = json.count ?? (json.emails ? json.emails.length : 0);
-              statusEl.textContent = 'Loaded ' + (json.emails ? json.emails.length : 0) + ' emails';
+              countBadge.textContent =
+                json.count ?? (json.emails ? json.emails.length : 0);
+              statusEl.textContent =
+                'Loaded ' + (json.emails ? json.emails.length : 0) + ' emails';
               renderList(json.emails || []);
               if (!(json.emails || []).length) {
                 frame.style.display = 'none';
@@ -504,12 +629,30 @@
           clearConfig();
           listEl.innerHTML = '';
           frame.style.display = 'none';
+          textViewer.style.display = 'none';
+          viewToggle.style.display = 'none';
           emptyState.style.display = 'flex';
           emptyState.innerHTML = 'Cleared configuration.';
           countBadge.textContent = '0';
           statusEl.textContent = 'Cleared.';
+          currentEmail = null;
         });
-        [apikeyEl, namespaceEl, tagEl, limitEl].forEach((el) => el.addEventListener('change', saveConfig));
+
+        btnHtml.addEventListener('click', () => {
+          if (currentEmail) {
+            showEmailContent(currentEmail, 'html');
+          }
+        });
+
+        btnText.addEventListener('click', () => {
+          if (currentEmail) {
+            showEmailContent(currentEmail, 'text');
+          }
+        });
+
+        [apikeyEl, namespaceEl, tagEl, limitEl].forEach((el) =>
+          el.addEventListener('change', saveConfig)
+        );
         loadConfig();
       })();
     </script>
